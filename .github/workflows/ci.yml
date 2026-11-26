@@ -1,0 +1,57 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04  # version figée
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Syntaxe JavaScript
+        run: for f in js/*.js tools/*.mjs; do node --check "$f"; done
+      - name: dist/deliverablespurifier.html à jour
+        run: |
+          node tools/build-standalone.mjs
+          git diff --exit-code -- dist/ || (echo "::error::dist/ n'est pas à jour : lancer node tools/build-standalone.mjs et committer" && exit 1)
+      - name: Tests navigateur (test.html)
+        run: |
+          python3 -m http.server 8000 >/dev/null 2>&1 &
+          sleep 2
+          # temps virtuel large : le rendu canvas des images est lent en headless
+          google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=300000 --dump-dom http://localhost:8000/test.html > out.html
+          grep -o '<title>[^<]*' out.html
+          grep -o 'FAIL  *[[:alpha:]].*' out.html || true
+          grep -q '<title>PASS' out.html
+
+  # Publication GitHub Pages (Settings → Pages → Source : GitHub Actions), seulement si les tests passent sur main
+  pages:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+      - name: Site (application seulement, sans tests ni outils)
+        run: |
+          mkdir _site
+          cp -r index.html css js fonts dist README.md _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
