@@ -25,4 +25,4 @@ Sans autorisation IA : seuls les emails, téléphones, URLs et IBAN sont remplac
 Le serveur LLM doit autoriser l'origine de la page : `https://benoitmarionpro.github.io` pour la version en ligne, `null` pour le fichier ouvert en double-clic, `http://localhost:8000` en développement. Le proxy CoPro accepte le texte seulement : la revue des images est alors manuelle.
 
 ## Développement
-`python tools/serve.py` puis `http://localhost:8000` ; tests : `http://localhost:8000/test.html` ; fichier unique : `node tools/build-standalone.mjs`. Voir `CLAUDE.md`. La CI (`.github/workflows/ci.yml`) vérifie la syntaxe, que `dist/` est à jour et lance `test.html` dans Chrome headless ; sur `main`, elle publie ensuite l'application sur GitHub Pages.
+`python tools/serve.py` puis `http://localhost:8000` ; tests : `http://localhost:8000/test.html` ; fichier unique : `node tools/build-standalone.mjs`. Voir `CLAUDE.md`. La CI (`.github/workflows/ci.yml`) vérifie la syntaxe, que `dist/` est à jour et lance `test.html` dans Chrome headless . GitHub Pages publie la branche `main` (racine) à chaque push.

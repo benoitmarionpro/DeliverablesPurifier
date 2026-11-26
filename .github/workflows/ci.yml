@@ -3,6 +3,7 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+# Publication : GitHub Pages en mode « Deploy from a branch » (main, racine), géré par GitHub, pas par ce workflow.
 permissions:
   contents: read
 jobs:
@@ -29,29 +30,3 @@ jobs:
           grep -o 'FAIL  *[[:alpha:]].*' out.html || true
           grep -q '<title>PASS' out.html
 
-  # Publication GitHub Pages (Settings → Pages → Source : GitHub Actions), seulement si les tests passent sur main
-  pages:
-    needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    concurrency:
-      group: pages
-      cancel-in-progress: true
-    steps:
-      - uses: actions/checkout@v5
-      - name: Site (application seulement, sans tests ni outils)
-        run: |
-          mkdir _site
-          cp -r index.html css js fonts dist README.md _site/
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-      - id: deploy
-        uses: actions/deploy-pages@v4
