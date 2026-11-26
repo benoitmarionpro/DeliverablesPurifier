@@ -12,7 +12,7 @@ export const EN = {
   'Dépôt': 'Upload', 'Analyse': 'Analysis', 'Revue': 'Review', 'Anonymisation': 'Anonymization', 'Terminé': 'Done',
   'Changer de langue recharge la page et interrompt le traitement en cours. Continuer ?': 'Switching language reloads the page and stops the current processing. Continue?',
   // dépôt, options
-  'Anonymise tes présentations PowerPoint clients, sans qu’elles quittent ton poste.': 'Anonymize your client PowerPoint decks without them leaving your computer.',
+  'Anonymise tes présentations PowerPoint clients avec le LLM de ton choix.': 'Anonymize your client PowerPoint decks with the LLM of your choice.',
   'Le fichier est traité dans ce navigateur. Seuls les textes extraits et, si tu l’acceptes, les images sont envoyés au LLM configuré dans Paramètres. Le résultat est à relire avant toute diffusion.': 'The file is processed in this browser. Only the extracted text and, if you allow it, the images are sent to the LLM configured in Settings. Review the result before sharing it.',
   'IA non autorisée.': 'AI not authorized.', 'Ouvrir Paramètres': 'Open Settings',
   'Sans IA : texte limité aux règles locales (emails, téléphones, URLs, IBAN), images à classer à la main.': 'Without AI: text limited to local rules (emails, phone numbers, URLs, IBAN), images classified by hand.',

@@ -42,7 +42,7 @@ function idle() {
   const ai = isAuthorized();
   const opt = ([k, title, desc]) => `<label class="opt ${S.opts[k] ? 'on' : ''}"><input type="checkbox" data-o="${k}" ${S.opts[k] ? 'checked' : ''}><b>${title}</b><span>${desc}</span></label>`;
   return `
-  <h2 class="hero">${t('Anonymise tes présentations PowerPoint clients, sans qu’elles quittent ton poste.')}</h2>
+  <h2 class="hero">${t('Anonymise tes présentations PowerPoint clients avec le LLM de ton choix.')}</h2>
   <div class="card warnc">${t('Le fichier est traité dans ce navigateur. Seuls les textes extraits et, si tu l’acceptes, les images sont envoyés au LLM configuré dans Paramètres. Le résultat est à relire avant toute diffusion.')}</div>
   ${ai ? '' : `<div class="card warnc"><b>${t('IA non autorisée.')}</b> ${t('Sans IA : texte limité aux règles locales (emails, téléphones, URLs, IBAN), images à classer à la main.')} <button id="go-set">${t('Ouvrir Paramètres')}</button></div>`}
   <button id="drop" class="drop ${S.file ? 'has' : ''}">${S.file ? `<b>${esc(S.file.name)}</b><span>${(S.file.size / 1e6).toFixed(1)} Mo · ${t('cliquer pour changer de fichier')}</span>` : `<b>${t('Dépose un fichier .pptx ici')}</b><span>${t('ou clique pour le choisir')}</span>`}</button>

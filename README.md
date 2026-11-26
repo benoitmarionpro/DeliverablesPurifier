@@ -1,6 +1,6 @@
 # DeliverablesPurifier
 
-Anonymisation de présentations PowerPoint (.pptx) **dans le navigateur** : le fichier ne quitte pas le poste. Les textes extraits (et, si le modèle le permet, les images) sont envoyés au LLM de ton choix, configuré dans **Paramètres**.
+Anonymisation de présentations PowerPoint (.pptx) **dans le navigateur, sans serveur** : le fichier est ouvert et réécrit localement, mais **son contenu part au LLM** de ton choix (configuré dans **Paramètres**) : textes extraits et, si le modèle le permet, images. N'utilise qu'un LLM autorisé pour les données du client.
 
 ## Utilisation
 1. Ouvrir <https://benoitmarionpro.github.io/DeliverablesPurifier/>, ou `dist/deliverablespurifier.html` par double-clic (aucune installation, fonctionne hors ligne).
