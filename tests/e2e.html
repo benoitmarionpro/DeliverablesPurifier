@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8"><title>e2e</title>
+<!-- Test de bout en bout avec le LLM configuré dans Paramètres (proxy local par défaut). Manuel : envoie le texte et l'image de tests/sample.pptx au LLM.
+     Ouvrir http://localhost:8000/tests/e2e.html?run=1[&file=rich.pptx][&dump=1] (le paramètre run=1 vaut autorisation d'usage de l'IA pour cette session de test). -->
+<pre id="o"></pre>
+<script type="module">
+import { setAuthorized } from '../js/keys.js';
+import { openPptx, text } from '../js/pptx.js';
+import { inventory, analyze } from '../js/images.js';
+import { purify, DEFAULT_OPTIONS } from '../js/purify.js';
+const o = document.getElementById('o'), log = s => (o.textContent += s + '\n');
+if (new URLSearchParams(location.search).get('run') !== '1') log('Ajouter ?run=1 pour lancer (envoie tests/sample.pptx au LLM configuré).');
+else {
+  setAuthorized(true);
+  try {
+    const pkg = await openPptx(await (await fetch(new URLSearchParams(location.search).get('file') || 'sample.pptx')).arrayBuffer());
+    const items = inventory(pkg, { withMasters: false });
+    const { vision } = await analyze(pkg, items, { say: log });
+    log('vision=' + vision + ' ' + JSON.stringify(items.map(i => i.ai)));
+    const choice = new Map(items.filter(i => i.ai?.sensitive).map(i => [i.index, { kind: i.ai.type, label: i.ai.label }]));
+    const r = await purify(pkg, DEFAULT_OPTIONS, { items, choice, ai: true, budget: 12000, on: (k, s, m) => log(`${k} ${s} ${m || ''}`) });
+    log('map=' + JSON.stringify([...r.map]));
+    log('stats=' + JSON.stringify(r.stats));
+    log('residuals=' + JSON.stringify(r.residuals) + ' warnings=' + JSON.stringify(r.warnings));
+    const out = await openPptx(await r.blob.arrayBuffer());
+    log('slide1=' + [...text(out, 'ppt/slides/slide1.xml').matchAll(/<a:t>([^<]*)/g)].map(m => m[1]).join(' | '));
+    log('slide3=' + [...text(out, 'ppt/slides/slide3.xml').matchAll(/<a:t>([^<]*)/g)].map(m => m[1]).join(' | '));
+    if (new URLSearchParams(location.search).get('dump') === '1') { // résultat en base64 dans la page (récupérable via --dump-dom)
+      const b = new Uint8Array(await r.blob.arrayBuffer()); let x = '';
+      for (let i = 0; i < b.length; i += 8192) x += String.fromCharCode(...b.subarray(i, i + 8192));
+      log('B64:' + btoa(x) + ':END');
+    }
+    document.title = 'DONE ' + (r.residuals.length ? 'RESIDUALS' : 'CLEAN');
+  } catch (e) { log('ERREUR ' + e.message); document.title = 'ERROR'; }
+}
+</script>

@@ -1,0 +1,160 @@
+<!doctype html>
+<meta charset="utf-8"><title>tests</title>
+<pre id="o"></pre>
+<script type="module">
+import { parseJson, config } from './js/llm.js';
+import { setAuthorized, isAuthorized } from './js/keys.js';
+import { readZip, writeZip, crc32 } from './js/zip.js';
+import { openPptx, xml, bytes, has, names, rels, slides, savePptx, dangling, text as partText } from './js/pptx.js';
+import { units, regexFind, validate, matcher, replaceUnit, batches, apply, residuals, collect } from './js/text.js';
+import { inventory, validateVision, redact } from './js/images.js';
+import { removeLinks, removeComments, removeMedia, clearNotes, scrubMeta, prune } from './js/clean.js';
+import { anonymizeLayout } from './js/layout.js';
+import { purify, outName, DEFAULT_OPTIONS } from './js/purify.js';
+import { EN } from './js/i18n.js';
+const o = document.getElementById('o'); let fails = 0, n = 0;
+const ok = (name, c) => { n++; if (!c) fails++; o.textContent += `${c ? 'OK  ' : 'FAIL'} ${name}\n`; };
+const step = async (name, fn) => { try { await fn(); } catch (e) { ok(`${name} : exception ${e.message}`, false); } };
+const A = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+const doc = s => new DOMParser().parseFromString(s, 'application/xml');
+const sample = async () => openPptx(await (await fetch('tests/sample.pptx')).arrayBuffer());
+
+await step('llm', () => {
+  ok('json fence', parseJson('Voici:\n```json\n{"a":[1]}\n```\nfin').a[0] === 1);
+  const was = isAuthorized(); setAuthorized(false);
+  let code; try { config('generate'); } catch (e) { code = e.code; }
+  ok('aucun appel IA sans autorisation', code === 'not_authorized');
+  setAuthorized(was);
+});
+
+await step('zip', async () => {
+  const pkg = await sample(), before = new Map([...pkg.entries].map(([k, e]) => [k, e.data]));
+  const back = await readZip(await (await savePptx(pkg)).arrayBuffer());
+  ok('zip : aller-retour sans modification, octets identiques', back.length === before.size && back.every(e => crc32(e.data) === crc32(before.get(e.name))));
+  const z = await readZip(await (await writeZip([{ name: 'a.xml', data: new TextEncoder().encode('<x>' + 'abc'.repeat(500) + '</x>') }])).arrayBuffer());
+  ok('zip : écriture deflate relisible', new TextDecoder().decode(z[0].data).length === 1507 && z[0].orig.method === 8);
+});
+
+await step('texte', () => {
+  const d = doc(`<p:sld ${A}><a:p><a:r><a:t>Projet Lou</a:t></a:r><a:r><a:t>is Vuitton 2026 </a:t></a:r><a:r><a:t>chez BNP</a:t></a:r></a:p><p:cNvPr id="2" name="Logo BNP" descr="logo BNP Paribas"/></p:sld>`);
+  const map = new Map([['Louis Vuitton', 'Luxury_Client'], ['BNP', 'Bank_Client'], ['BNP Paribas', 'Bank_Client']]), re = matcher(map);
+  const us = units(d); us.forEach(u => replaceUnit(u, map, re));
+  ok('remplacement à cheval sur deux runs, mot entier', [...d.getElementsByTagNameNS('*', 't')].map(x => x.textContent).join('|') === 'Projet Luxury_Client| 2026 |chez Bank_Client');
+  ok('alt text et nom de forme anonymisés (le plus long d’abord)', d.querySelector('cNvPr').getAttribute('descr') === 'logo Bank_Client' && d.querySelector('cNvPr').getAttribute('name') === 'Logo Bank_Client');
+  ok('pas de remplacement au milieu d’un mot', 'BNPX'.replace(matcher(new Map([['BNP', 1]])), '#') === 'BNPX');
+  const v = validate([{ original: 'Société Générale', replacement: 'Bank_Client' }, { original: 'Inventé', replacement: 'Person' }, { original: 'Total', replacement: 'Énergie' }, { original: 'Client', replacement: 'Client' }], 'La Société Générale et Total');
+  ok('validation : original absent rejeté, placeholder hors liste → Redacted, placeholder ignoré', v.get('Société Générale') === 'Bank_Client' && !v.has('Inventé') && v.get('Total') === 'Redacted' && !v.has('Client'));
+  const r = regexFind('Écrire à jean.dupont@client.fr ou au 01 23 45 67 89 / +33 6 12 34 56 78, voir https://intra.client.fr/x. IBAN FR76 3000 6000 0112 3456 7890 189');
+  ok('regex : email, téléphones, URL, IBAN', r.get('jean.dupont@client.fr') === 'Email' && r.get('01 23 45 67 89') === 'Phone' && r.get('+33 6 12 34 56 78') === 'Phone' && r.get('https://intra.client.fr/x') === 'URL' && [...r.values()].includes('IBAN'));
+  ok('lots sous budget', batches(['a'.repeat(60), 'b'.repeat(60), 'c'], 100).length === 2);
+});
+
+await step('purify (sans IA)', async () => {
+  const pkg = await sample();
+  ok('ordre des slides', slides(pkg).join() === 'ppt/slides/slide1.xml,ppt/slides/slide2.xml,ppt/slides/slide3.xml');
+  ok('texte collecté : slides et masters', collect(pkg, { notes: true }).some(l => l.includes('Louis Vuitton')));
+  const items = inventory(pkg, { withMasters: false });
+  ok('inventaire images', items.length === 1 && items[0].path === 'ppt/media/image1.png' && items[0].slides.join() === '2');
+  const orig = bytes(pkg, 'ppt/media/image1.png');
+  const r = await purify(pkg, DEFAULT_OPTIONS, { items, choice: new Map([[0, { kind: 'logo', label: 'Bank_Client' }]]), ai: false });
+  const out = await openPptx(await r.blob.arrayBuffer());
+  ok('image remplacée (PNG valide, octets différents)', r.stats.imagesRedacted === 1 && bytes(out, 'ppt/media/image1.png')[1] === 0x50 && crc32(bytes(out, 'ppt/media/image1.png')) !== crc32(orig));
+  ok('docProps : auteur vidé, miniature supprimée', !/Thomas Gallois/.test(partText(out, 'docProps/core.xml')) && !has(out, 'docProps/thumbnail.jpeg') && !rels(out, '').some(x => /thumbnail/.test(x.type)));
+  ok('mise en page : fond blanc sur les slides', /<p:bg><p:bgPr><a:solidFill><a:srgbClr val="FFFFFF"\/>/.test(partText(out, 'ppt/slides/slide1.xml')));
+  ok('relations cohérentes : toute cible interne existe', names(out).filter(x => x.endsWith('.rels')).every(rp => rels(out, rp.replace(/(^|\/)_rels\/([^/]+)\.rels$/, '$1$2')).every(x => x.external || has(out, x.target))));
+  ok('content types : chaque Override existe', [...xml(out, '[Content_Types].xml').getElementsByTagName('Override')].every(x => has(out, x.getAttribute('PartName').slice(1))));
+  ok('sans IA : avertissement', r.warnings.length >= 1);
+  ok('aucune référence r:id orpheline', !dangling(out).length);
+  const res = residuals(out, new Map([['Louis Vuitton', 'Luxury_Client']]));
+  ok('vérification résiduelle : terme non traité retrouvé', res.length === 1 && res[0].parts.includes('ppt/slides/slide1.xml'));
+  ok('nom de fichier anonymisé', outName('Offre BNP.pptx', new Map([['BNP', 'Bank_Client']])) === 'Anonymized_Offre Bank_Client.pptx');
+});
+
+await step('mapping appliqué au package', async () => {
+  const pkg = await sample(), map = new Map([['Louis Vuitton', 'Luxury_Client'], ['Thomas Gallois', 'Person']]);
+  const nb = apply(pkg, map, { notes: true });
+  ok('apply : slides + docProps', nb >= 3 && residuals(pkg, map).length === 0);
+});
+
+await step('deck riche (graphique, SmartArt, commentaires modernes, notes, lien)', async () => {
+  const pkg = await openPptx(await (await fetch('tests/rich.pptx')).arrayBuffer());
+  const map = new Map([['BNP Paribas', 'Bank_Client'], ['Société Générale', 'Bank_Client'], ['Jean Dupont', 'Person'], ['Projet Phoenix', 'Project'], ['Phoenix', 'Project'], ['Marie Martin', 'Person']]);
+  clearNotes(pkg); removeComments(pkg); removeLinks(pkg); scrubMeta(pkg); anonymizeLayout(pkg);
+  apply(pkg, map, { notes: false }); prune(pkg);
+  const res = residuals(pkg, map);
+  ok('aucun résidu (graphique, SmartArt, alt text, docProps)' + (res.length ? ' — ' + JSON.stringify(res) : ''), !res.length);
+  ok('auteurs des commentaires modernes supprimés', !has(pkg, 'ppt/authors.xml') && !names(pkg).some(x => x.startsWith('ppt/comments/')));
+  ok('classeur du graphique supprimé', !names(pkg).some(x => x.startsWith('ppt/embeddings/')) && !/externalData/.test(partText(pkg, 'ppt/charts/chart1.xml')));
+  ok('email retiré avec le lien', !/intranet\.bnpparibas/.test(names(pkg).filter(x => x.endsWith('.rels')).map(x => partText(pkg, x)).join()));
+  const out = await openPptx(await (await savePptx(pkg)).arrayBuffer());
+  ok('aucune référence r:id orpheline (deck riche)' + (dangling(out).length ? ' — ' + JSON.stringify(dangling(out)) : ''), !dangling(out).length);
+  ok('relations cohérentes après nettoyage', names(out).filter(x => x.endsWith('.rels')).every(rp => rels(out, rp.replace(/(^|\/)_rels\/([^/]+)\.rels$/, '$1$2')).every(x => x.external || has(out, x.target))));
+});
+
+await step('nettoyages', async () => {
+  const pkg = await sample(), s = 'ppt/slides/slide1.xml', d = xml(pkg, s);
+  // lien externe, vidéo et commentaire injectés
+  const relsDoc = xml(pkg, 'ppt/slides/_rels/slide1.xml.rels'), R = relsDoc.documentElement;
+  const add = (id, type, target, ext) => { const e = relsDoc.createElementNS(R.namespaceURI, 'Relationship'); e.setAttribute('Id', id); e.setAttribute('Type', type); e.setAttribute('Target', target); if (ext) e.setAttribute('TargetMode', 'External'); R.append(e); };
+  add('rId90', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink', 'https://client.example/secret', true);
+  add('rId91', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/video', '../media/media1.mp4');
+  add('rId92', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments', '../comments/comment1.xml');
+  pkg.entries.set('ppt/media/media1.mp4', { name: 'ppt/media/media1.mp4', data: new Uint8Array(10) });
+  pkg.entries.set('ppt/comments/comment1.xml', { name: 'ppt/comments/comment1.xml', data: new TextEncoder().encode('<x/>') });
+  const r = d.getElementsByTagNameNS('http://schemas.openxmlformats.org/drawingml/2006/main', 'rPr')[0];
+  const h = d.createElementNS('http://schemas.openxmlformats.org/drawingml/2006/main', 'a:hlinkClick'); h.setAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'r:id', 'rId90'); r.append(h);
+  const tree = d.getElementsByTagNameNS('http://schemas.openxmlformats.org/presentationml/2006/main', 'spTree')[0];
+  tree.append(doc(`<p:pic ${A}><p:nvPicPr><p:cNvPr id="9" name="Video"/><p:cNvPicPr/><p:nvPr><a:videoFile r:link="rId91"/></p:nvPr></p:nvPicPr></p:pic>`).documentElement);
+  ok('hyperlien retiré, texte préfixé', removeLinks(pkg) === 1 && /Lien_URL_Louis/.test(partText(pkg, s)) && !rels(pkg, s).some(x => x.type.endsWith('/hyperlink')));
+  ok('vidéo retirée (forme, relation, média)', removeMedia(pkg) === 1 && !has(pkg, 'ppt/media/media1.mp4') && !/videoFile/.test(partText(pkg, s)));
+  ok('commentaires retirés', removeComments(pkg) === 1 && !has(pkg, 'ppt/comments/comment1.xml') && !rels(pkg, s).some(x => /comments/.test(x.type)));
+  pkg.entries.set('customXml/item1.xml', { name: 'customXml/item1.xml', data: new TextEncoder().encode('<x/>') });
+  add('rId93', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml', '../../customXml/item1.xml');
+  d.documentElement.firstElementChild.after(doc(`<p:custDataLst ${A}><p:custData r:id="rId93"/></p:custDataLst>`).documentElement);
+  const m = scrubMeta(pkg);
+  ok('customXml supprimé avec son p:custData (sinon réparation PowerPoint)', !has(pkg, 'customXml/item1.xml') && !/custData/.test(partText(pkg, s)) && !dangling(pkg).length);
+  ok('métadonnées', m.ole === 0 && !has(pkg, 'docProps/thumbnail.jpeg'));
+  anonymizeLayout(pkg);
+  ok('mise en page : formes hors placeholders des masters supprimées, ordre a:rPr valide', [...xml(pkg, 'ppt/slides/slide1.xml').getElementsByTagNameNS('*', 'rPr')].every(p => { const k = [...p.children].map(c => c.localName); return k.indexOf('solidFill') < k.indexOf('latin'); }));
+  ok('prune : média orphelin supprimé', (pkg.entries.set('ppt/media/orphan.png', { name: 'ppt/media/orphan.png', data: new Uint8Array(4) }), prune(pkg)) >= 1 && !has(pkg, 'ppt/media/orphan.png'));
+});
+
+await step('vision', () => {
+  const v = validateVision({ isSensitive: true, sensitivityType: 'logo', logoLabel: 'Hacker', reason: 'x' });
+  ok('vision : label hors liste → Client', v.type === 'logo' && v.label === 'Client');
+  ok('vision : type inconnu mais sensible → confidential', validateVision({ isSensitive: true, sensitivityType: 'bizarre' }).type === 'confidential');
+  ok('vision : non sensible', !validateVision({ isSensitive: false, sensitivityType: 'none' }).sensitive);
+});
+
+await step('i18n', async () => {
+  const keys = new Set();
+  for (const f of ['app', 'settings', 'llm', 'text', 'images', 'clean', 'purify', 'zip', 'pptx']) {
+    const s = await (await fetch(`js/${f}.js`)).text();
+    for (const m of s.matchAll(/\bt\('((?:[^'\\]|\\.)*)'/g)) keys.add(m[1]);
+    for (const m of s.matchAll(/label: '([^']+)'/g)) keys.add(m[1]);
+  }
+  const miss = [...keys].filter(k => !(k in EN));
+  ok('i18n : toutes les chaînes ont une traduction' + (miss.length ? ' — manquantes : ' + miss.join(' | ') : ''), !miss.length);
+});
+
+await step('interface (sans IA)', async () => {
+  sessionStorage.removeItem('purifier.ai-ok');
+  const f = Object.assign(document.createElement('iframe'), { src: 'index.html#home', style: 'width:1200px;height:800px' });
+  document.body.append(f); await new Promise(r => (f.onload = r));
+  const w = f.contentWindow, d = f.contentDocument, q = s => d.querySelector(s);
+  const until = async (fn, ms = 20000) => { for (let t0 = Date.now(); Date.now() - t0 < ms; await new Promise(r => setTimeout(r, 50))) { const v = fn(); if (v) return v; } throw new Error('délai dépassé'); };
+  await until(() => q('#drop'));
+  const dt = new w.DataTransfer(); dt.items.add(new w.File([await (await fetch('tests/sample.pptx')).blob()], 'Offre Louis Vuitton.pptx'));
+  q('#drop').dispatchEvent(new w.DragEvent('drop', { dataTransfer: dt, bubbles: true }));
+  (await until(() => q('#start'))).click();
+  await until(() => q('[data-sel]'));
+  ok('ui : revue manuelle sans IA, rien de pré-coché', !q('[data-sel]').checked && /classe les images à la main/.test(d.body.textContent));
+  q('[data-sel]').click();
+  q('#go').click();
+  const dl = await until(() => q('#dl'));
+  ok('ui : résumé et lien de téléchargement', dl.href.startsWith('blob:') && /images caviardées/.test(d.body.textContent) && dl.download === 'Anonymized_Offre Louis Vuitton.pptx');
+  f.remove();
+});
+
+document.title = fails ? `FAIL ${fails}/${n}` : `PASS ${n}`;
+</script>

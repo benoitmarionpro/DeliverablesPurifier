@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DeliverablesPurifier</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+  <h1>DeliverablesPurifier<small>Wavestone</small></h1>
+  <nav id="tabs"></nav>
+  <button id="lang" class="lang" style="margin-left:auto"></button>
+</header>
+<main id="view"></main>
+<!-- dev:start (retiré de dist/deliverablespurifier.html par tools/build-standalone.mjs) -->
+<script>
+if (location.protocol === 'file:') document.getElementById('view').innerHTML = localStorage.getItem('purifier.lang') === 'en' ?
+  '<div class="card"><b>This folder cannot be opened directly (file://): browsers block JavaScript modules.</b>' +
+  '<p>Open <code>dist/deliverablespurifier.html</code> instead (single file, no server), or serve the folder: <code>python tools/serve.py</code> then <code>http://localhost:8000</code>.</p></div>' :
+  '<div class="card"><b>Ce dossier ne peut pas être ouvert directement (file://) : les navigateurs bloquent les modules JavaScript.</b>' +
+  '<p>Ouvre plutôt <code>dist/deliverablespurifier.html</code> par double-clic (fichier unique, sans serveur), ou sers le dossier : <code>python tools/serve.py</code> puis <code>http://localhost:8000</code>.</p></div>';
+</script>
+<!-- dev:end -->
+<footer>DeliverablesPurifier · Wavestone</footer>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
